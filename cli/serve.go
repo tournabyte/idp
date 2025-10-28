@@ -5,8 +5,10 @@ package cli
 
 import (
 	"fmt"
+	"log"
 
 	"github.com/spf13/cobra"
+	"github.com/tournabyte/idp/api"
 )
 
 var (
@@ -18,7 +20,10 @@ var serveCmd = &cobra.Command{
 	Short: "Start the IdP web server",
 	Run: func(cmd *cobra.Command, args []string) {
 		fmt.Printf("Starting service on port %d\n", port)
-		//TODO: Instatiate a server instance and listen
+		server := api.NewIdentityProviderServer(
+			fmt.Sprintf(":%d", port),
+		)
+		log.Fatalln(server.ListenAndServe())
 	},
 }
 
