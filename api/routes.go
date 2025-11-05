@@ -5,16 +5,37 @@ package api
 
 import (
 	"net/http"
+
+	"go.mongodb.org/mongo-driver/v2/mongo"
 )
 
-func NewIdentityProviderServer(addr string) *http.Server {
-	mux := http.NewServeMux()
+type TournabyteIdentityProviderService struct {
+	db  *mongo.Client
+	mux *http.ServeMux
+}
 
-	mux.HandleFunc("POST /accounts", createAccount)
-	mux.HandleFunc("GET /accounts", getAccount)
-
-	return &http.Server{
-		Addr:    addr,
-		Handler: mux,
+func NewIdentityProviderServer(addr string) *TournabyteIdentityProviderService {
+	return &TournabyteIdentityProviderService{
+		db:  nil,
+		mux: http.NewServeMux(),
 	}
+}
+
+func (server *TournabyteIdentityProviderService) AddHandler(route string, handler http.HandlerFunc) {
+	server.mux.HandleFunc(route, handler)
+}
+
+func (server *TournabyteIdentityProviderService) RunServer() error {
+	listener := &http.Server{
+		Addr:    ":8080",
+		Handler: server.mux,
+	}
+
+	return listener.ListenAndServe()
+}
+
+func (server *TournabyteIdentityProviderService) ConfigureServer() *TournabyteIdentityProviderService {
+	server.AddHandler("POST /accounts", createAccount)
+	server.AddHandler("GET /accounts", getAccount)
+	return server
 }
