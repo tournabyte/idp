@@ -18,16 +18,19 @@ var (
 var serveCmd = &cobra.Command{
 	Use:   "serve",
 	Short: "Start the IdP web server",
-	Run: func(cmd *cobra.Command, args []string) {
-		fmt.Printf("Starting service on port %d\n", port)
-		server := api.NewIdentityProviderServer(
-			fmt.Sprintf(":%d", port),
-		)
-		log.Fatalln(server.ListenAndServe())
-	},
+	Run:   run,
 }
 
 func init() {
 	serveCmd.Flags().IntVarP(&port, "port", "p", 8080, "Port to listen on")
 	rootCmd.AddCommand(serveCmd)
+}
+
+func run(cmd *cobra.Command, args []string) {
+	log.Printf("Starting service on port %d\n", port)
+	server := api.NewIdentityProviderServer(
+		fmt.Sprintf(":%d", port),
+	)
+	server.ConfigureServer()
+	server.RunServer()
 }
