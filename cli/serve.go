@@ -11,10 +11,7 @@ import (
 )
 
 var (
-	port       int
-	mongo_host string
-	mongo_user string
-	mongo_pass string
+	port int
 )
 
 var serveCmd = &cobra.Command{
@@ -25,19 +22,12 @@ var serveCmd = &cobra.Command{
 
 func init() {
 	serveCmd.Flags().IntVarP(&port, "port", "p", 8080, "Port to listen on")
-	serveCmd.Flags().StringVarP(&mongo_host, "dbhost", "n", "", "Database hostname")
-	serveCmd.Flags().StringVarP(&mongo_user, "dbuser", "u", "", "Database username")
-	serveCmd.Flags().StringVarP(&mongo_pass, "dbpass", "w", "", "Database password")
 	rootCmd.AddCommand(serveCmd)
 }
 
 func run(cmd *cobra.Command, args []string) {
 	log.Printf("Starting service on port %d\n", port)
-	server, err := api.NewIdentityProviderServer(
-		mongo_host,
-		mongo_user,
-		mongo_pass,
-	)
+	server, err := api.NewIdentityProviderServer()
 
 	if err != nil {
 		log.Fatalf("Failed to create server: %v", err)

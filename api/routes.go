@@ -4,12 +4,15 @@
 package api
 
 import (
+	"context"
 	"fmt"
 	"log"
 	"net/http"
+	"time"
 
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
+	"go.mongodb.org/mongo-driver/v2/mongo/readpref"
 )
 
 type TournabyteIdentityProviderService struct {
@@ -17,18 +20,23 @@ type TournabyteIdentityProviderService struct {
 	mux *http.ServeMux
 }
 
-func NewIdentityProviderServer(dbhost, dbuser, dbpass string) (*TournabyteIdentityProviderService, error) {
+func NewIdentityProviderServer() (*TournabyteIdentityProviderService, error) {
 
-	uri := fmt.Sprintf("mongodb://%s:%s@%s", dbuser, dbpass, dbhost)
-	opts := options.Client().ApplyURI(uri)
+	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
+	defer cancel()
 
+	opts := options.Client()
 	conn, conn_err := mongo.Connect(opts)
 
 	if conn_err != nil {
 		return nil, conn_err
 	}
 
-	log.Printf("Using %s as the database", uri)
+	if ping_err := conn.Ping(ctx, readpref.Primary()); ping_err != nil {
+		return nil, ping_err
+	}
+
+	log.Printf("Using `%s` as the database", opts.GetURI())
 
 	return &TournabyteIdentityProviderService{
 		db:  conn,
