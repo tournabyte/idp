@@ -1,5 +1,5 @@
 /*
-* package cli defines the command line interface (CLI) for the Tournabyte identity provider service
+ * package cli defines the command line interface (CLI) for the Tournabyte identity provider service
  */
 package cli
 

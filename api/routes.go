@@ -4,9 +4,12 @@
 package api
 
 import (
+	"fmt"
+	"log"
 	"net/http"
 
 	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/mongo/options"
 )
 
 type TournabyteIdentityProviderService struct {
@@ -14,20 +17,32 @@ type TournabyteIdentityProviderService struct {
 	mux *http.ServeMux
 }
 
-func NewIdentityProviderServer(addr string) *TournabyteIdentityProviderService {
-	return &TournabyteIdentityProviderService{
-		db:  nil,
-		mux: http.NewServeMux(),
+func NewIdentityProviderServer(dbhost, dbuser, dbpass string) (*TournabyteIdentityProviderService, error) {
+
+	uri := fmt.Sprintf("mongodb://%s:%s@%s", dbuser, dbpass, dbhost)
+	opts := options.Client().ApplyURI(uri)
+
+	conn, conn_err := mongo.Connect(opts)
+
+	if conn_err != nil {
+		return nil, conn_err
 	}
+
+	log.Printf("Using %s as the database", uri)
+
+	return &TournabyteIdentityProviderService{
+		db:  conn,
+		mux: http.NewServeMux(),
+	}, nil
 }
 
 func (server *TournabyteIdentityProviderService) AddHandler(route string, handler http.HandlerFunc) {
 	server.mux.HandleFunc(route, handler)
 }
 
-func (server *TournabyteIdentityProviderService) RunServer() error {
+func (server *TournabyteIdentityProviderService) RunServer(port int) error {
 	listener := &http.Server{
-		Addr:    ":8080",
+		Addr:    fmt.Sprintf(":%d", port),
 		Handler: server.mux,
 	}
 
