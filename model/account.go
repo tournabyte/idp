@@ -13,10 +13,10 @@ import (
 )
 
 type Account struct {
-	UserId    string    `bson:"user_id"`
-	Email     string    `bson:"email"`
-	CreatedAt time.Time `bson:"created_at"`
-	UpdatedAt time.Time `bson:"updated_at"`
+	UserId    bson.ObjectID `bson:"_id,omitempty"`
+	Email     string        `bson:"email"`
+	CreatedAt time.Time     `bson:"created_at"`
+	UpdatedAt time.Time     `bson:"updated_at"`
 }
 
 type TournabyteAccountRepository struct {

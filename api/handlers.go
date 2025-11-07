@@ -4,13 +4,53 @@
 package api
 
 import (
+	"context"
+	"encoding/json"
+	"io"
 	"log"
 	"net/http"
+	"time"
+
+	"github.com/tournabyte/idp/model"
+	"go.mongodb.org/mongo-driver/v2/mongo"
 )
 
 func createAccount(w http.ResponseWriter, r *http.Request) {
-	log.Println("Create account handler invoked!")
-	w.Write([]byte("Account creation handled\n"))
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+
+	var payload model.CreateAccountRequest
+	body, err := io.ReadAll(r.Body)
+	if err != nil {
+		http.Error(w, "Failed to read request body", http.StatusBadRequest)
+		return
+	}
+	defer r.Body.Close()
+
+	if err := json.Unmarshal(body, &payload); err != nil {
+		http.Error(w, "Body did not contain valid JSON", http.StatusBadRequest)
+		return
+	}
+
+	val := r.Context().Value("CONN")
+	var accounts *model.TournabyteAccountRepository
+	if conn, ok := val.(*mongo.Database); ok {
+		accounts = model.NewTournabyteAccountRepository(conn)
+	} else {
+		http.Error(w, "Database server not reachable", http.StatusBadGateway)
+		return
+	}
+
+	newAccount := model.Account{
+		Email: payload.NewAccountEmail,
+	}
+	if create_err := accounts.Create(ctx, &newAccount); create_err != nil {
+		http.Error(w, create_err.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusCreated)
+	w.Write([]byte("Successfully created the account"))
 }
 
 func getAccount(w http.ResponseWriter, r *http.Request) {

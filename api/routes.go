@@ -58,7 +58,14 @@ func (server *TournabyteIdentityProviderService) RunServer(port int) error {
 }
 
 func (server *TournabyteIdentityProviderService) ConfigureServer() *TournabyteIdentityProviderService {
-	server.AddHandler("POST /accounts", createAccount)
-	server.AddHandler("GET /accounts", getAccount)
+	server.AddHandler("POST /accounts", server.AcquireDb(createAccount))
+	server.AddHandler("GET /accounts", server.AcquireDb(getAccount))
 	return server
+}
+
+func (server *TournabyteIdentityProviderService) AcquireDb(next http.HandlerFunc) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		ctx := context.WithValue(r.Context(), "CONN", server.db.Database("idp"))
+		next.ServeHTTP(w, r.WithContext(ctx))
+	}
 }
