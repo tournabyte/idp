@@ -49,7 +49,7 @@ func createAccount(w http.ResponseWriter, r *http.Request) {
 	}
 
 	w.WriteHeader(http.StatusCreated)
-	w.Write([]byte("Successfully created the account"))
+	json.NewEncoder(w).Encode(newAccount)
 }
 
 func getAccount(w http.ResponseWriter, r *http.Request) {

@@ -27,8 +27,12 @@ func NewTournabyteAccountRepository(db *mongo.Database) *TournabyteAccountReposi
 }
 
 func (r *TournabyteAccountRepository) Create(ctx context.Context, account *Account) error {
-	_, err := r.collection.InsertOne(ctx, account)
-	return err
+	result, err := r.collection.InsertOne(ctx, account)
+	if err != nil {
+		return err
+	}
+	account.Id = result.InsertedID.(bson.ObjectID)
+	return nil
 }
 
 func (r *TournabyteAccountRepository) FindById(ctx context.Context, idHex string) (*Account, error) {
