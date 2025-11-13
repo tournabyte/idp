@@ -7,3 +7,8 @@ package model
 type CreateAccountRequest struct {
 	NewAccountEmail string `json:"email"`
 }
+
+type ErrorResponse struct {
+	Reason  string `json:"reason"`
+	Message string `json:"err_msg"`
+}
