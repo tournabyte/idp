@@ -6,17 +6,14 @@ package model
 
 import (
 	"context"
-	"time"
 
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 )
 
 type Account struct {
-	UserId    bson.ObjectID `bson:"_id,omitempty"`
-	Email     string        `bson:"email"`
-	CreatedAt time.Time     `bson:"created_at"`
-	UpdatedAt time.Time     `bson:"updated_at"`
+	Id    bson.ObjectID `bson:"_id,omitempty"`
+	Email string        `bson:"email"`
 }
 
 type TournabyteAccountRepository struct {
@@ -30,20 +27,24 @@ func NewTournabyteAccountRepository(db *mongo.Database) *TournabyteAccountReposi
 }
 
 func (r *TournabyteAccountRepository) Create(ctx context.Context, account *Account) error {
-	now := time.Now()
-	account.CreatedAt = now
-	account.UpdatedAt = now
-
 	_, err := r.collection.InsertOne(ctx, account)
 	return err
 }
 
-func (r *TournabyteAccountRepository) FindOne(ctx context.Context, filter bson.M) (*Account, error) {
+func (r *TournabyteAccountRepository) FindById(ctx context.Context, idHex string) (*Account, error) {
 	var account Account
+	var filter bson.D
 
-	err := r.collection.FindOne(ctx, filter).Decode(&account)
-	if err == mongo.ErrNoDocuments {
-		return nil, nil
+	oid, convertIdErr := bson.ObjectIDFromHex(idHex)
+
+	if convertIdErr != nil {
+		return nil, convertIdErr
 	}
-	return &account, err
+
+	filter = bson.D{{Key: "_id", Value: oid}}
+	findDocumentErr := r.collection.FindOne(ctx, filter).Decode(&account)
+	if findDocumentErr == mongo.ErrNoDocuments {
+		return nil, findDocumentErr
+	}
+	return &account, nil
 }

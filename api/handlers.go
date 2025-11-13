@@ -7,7 +7,6 @@ import (
 	"context"
 	"encoding/json"
 	"io"
-	"log"
 	"net/http"
 	"time"
 
@@ -37,7 +36,7 @@ func createAccount(w http.ResponseWriter, r *http.Request) {
 	if conn, ok := val.(*mongo.Database); ok {
 		accounts = model.NewTournabyteAccountRepository(conn)
 	} else {
-		http.Error(w, "Database server not reachable", http.StatusBadGateway)
+		http.Error(w, "Database Error", http.StatusBadGateway)
 		return
 	}
 
@@ -54,6 +53,31 @@ func createAccount(w http.ResponseWriter, r *http.Request) {
 }
 
 func getAccount(w http.ResponseWriter, r *http.Request) {
-	log.Println("Get account handler invoked!")
-	w.Write([]byte("Account lookup handled\n"))
+	ctx, cancel := context.WithTimeout(r.Context(), 10*time.Second)
+	defer cancel()
+
+	idPathParameter := r.PathValue("id")
+	if idPathParameter == "" {
+		http.Error(w, "No parameter provided", http.StatusBadRequest)
+		return
+	}
+
+	val := r.Context().Value("CONN")
+	var accounts *model.TournabyteAccountRepository
+	if conn, ok := val.(*mongo.Database); ok {
+		accounts = model.NewTournabyteAccountRepository(conn)
+	} else {
+		http.Error(w, "Database Error", http.StatusBadGateway)
+		return
+	}
+
+	account, findErr := accounts.FindById(ctx, idPathParameter)
+	if findErr != nil {
+		http.Error(w, findErr.Error(), http.StatusInternalServerError)
+		return
+	}
+
+	w.WriteHeader(http.StatusOK)
+	json.NewEncoder(w).Encode(account)
+
 }

@@ -59,7 +59,7 @@ func (server *TournabyteIdentityProviderService) RunServer(port int) error {
 
 func (server *TournabyteIdentityProviderService) ConfigureServer() *TournabyteIdentityProviderService {
 	server.AddHandler("POST /accounts", server.AcquireDb(createAccount))
-	server.AddHandler("GET /accounts", server.AcquireDb(getAccount))
+	server.AddHandler("GET /accounts/{id}", server.AcquireDb(getAccount))
 	return server
 }
 
