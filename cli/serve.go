@@ -7,32 +7,47 @@ import (
 	"log"
 
 	"github.com/spf13/cobra"
+	"github.com/spf13/viper"
 	"github.com/tournabyte/idp/api"
-)
-
-var (
-	port int
 )
 
 var serveCmd = &cobra.Command{
 	Use:   "serve",
 	Short: "Start the IdP web server",
-	Run:   run,
+	Run:   doCommand,
 }
 
 func init() {
-	serveCmd.Flags().IntVarP(&port, "port", "p", 8080, "Port to listen on")
+	serveCmd.Flags().Int("port", 8080, "Port for the application to listen on")
+	serveCmd.Flags().StringSlice("mongo", []string{"localhost:27017"}, "Comma-separated list of hosts for mongo db persistence functionality")
+	serveCmd.Flags().String("dbname", "local", "Database to utilize for persistence layer")
+	serveCmd.Flags().String("dbuser", "", "Database identity to access mongo instance")
+	serveCmd.Flags().String("dbpass", "", "Database access key for authenticating to mongo instance")
+
 	rootCmd.AddCommand(serveCmd)
+
+	viper.BindPFlag("serve.port", serveCmd.Flags().Lookup("port"))
+	viper.BindPFlag("mongo.hosts", serveCmd.Flags().Lookup("mongo"))
+	viper.BindPFlag("mongo.database", serveCmd.Flags().Lookup("dbname"))
+	viper.BindPFlag("mongo.username", serveCmd.Flags().Lookup("dbuser"))
+	viper.BindPFlag("mongo.password", serveCmd.Flags().Lookup("dbpass"))
 }
 
-func run(cmd *cobra.Command, args []string) {
-	log.Printf("Starting service on port %d\n", port)
+func doCommand(cmd *cobra.Command, args []string) {
+
 	server, err := api.NewIdentityProviderServer()
 
 	if err != nil {
 		log.Fatalf("Failed to create server: %v", err)
 	}
 
+	port := viper.GetInt("serve.port")
+	log.Printf("Listening on port %d\n", port)
+	log.Printf("Serve config resolved:\n{%v}\n", viper.Get("serve"))
+	log.Printf("Mongo config resolved:\n{%v}\n", viper.Get("mongo"))
+
 	server.ConfigureServer()
-	server.RunServer(port)
+	if runErr := server.RunServer(port); runErr != nil {
+		log.Fatalf("Fatal: %v\n", runErr)
+	}
 }

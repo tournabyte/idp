@@ -1,5 +1,5 @@
 /*
-* package api defines the server net/http server instance used for processing requests for idp service
+ * package api defines the server net/http server instance used for processing requests for idp service
  */
 package api
 
@@ -10,14 +10,23 @@ import (
 	"net/http"
 	"time"
 
+	"github.com/tournabyte/idp/model"
+
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 	"go.mongodb.org/mongo-driver/v2/mongo/readpref"
 )
 
+type IdpRequestContextKey string
+
+const (
+	DatabaseConnectionKey IdpRequestContextKey = "CONN"
+)
+
 type TournabyteIdentityProviderService struct {
-	db  *mongo.Client
-	mux *http.ServeMux
+	db   *mongo.Client
+	mux  *http.ServeMux
+	conf *model.AppConfig
 }
 
 func NewIdentityProviderServer() (*TournabyteIdentityProviderService, error) {
