@@ -9,6 +9,7 @@ import (
 	"github.com/spf13/cobra"
 	"github.com/spf13/viper"
 	"github.com/tournabyte/idp/api"
+	"github.com/tournabyte/idp/model"
 )
 
 var serveCmd = &cobra.Command{
@@ -33,21 +34,25 @@ func init() {
 	viper.BindPFlag("mongo.password", serveCmd.Flags().Lookup("dbpass"))
 }
 
+func getCommandOpts() model.CommandOpts {
+	var cmdOpts model.CommandOpts
+
+	cmdOpts.Port = viper.GetInt("serve.port")
+	cmdOpts.Dbhosts = viper.GetStringSlice("mongo.hosts")
+	cmdOpts.Dbname = viper.GetString("mongo.database")
+	cmdOpts.Dbuser = viper.GetString("mongo.username")
+	cmdOpts.Dbpass = viper.GetString("mongo.password")
+
+	return cmdOpts
+}
+
 func doCommand(cmd *cobra.Command, args []string) {
 
-	server, err := api.NewIdentityProviderServer()
+	server, err := api.NewIdentityProviderServer(getCommandOpts())
 
 	if err != nil {
 		log.Fatalf("Failed to create server: %v", err)
 	}
 
-	port := viper.GetInt("serve.port")
-	log.Printf("Listening on port %d\n", port)
-	log.Printf("Serve config resolved:\n{%v}\n", viper.Get("serve"))
-	log.Printf("Mongo config resolved:\n{%v}\n", viper.Get("mongo"))
-
-	server.ConfigureServer()
-	if runErr := server.RunServer(port); runErr != nil {
-		log.Fatalf("Fatal: %v\n", runErr)
-	}
+	server.Run()
 }

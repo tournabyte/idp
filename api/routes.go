@@ -3,33 +3,12 @@
  */
 package api
 
-import (
-	"context"
-	"fmt"
-	"log"
-	"net/http"
-	"time"
-
-	"github.com/tournabyte/idp/model"
-
-	"go.mongodb.org/mongo-driver/v2/mongo"
-	"go.mongodb.org/mongo-driver/v2/mongo/options"
-	"go.mongodb.org/mongo-driver/v2/mongo/readpref"
-)
-
-type IdpRequestContextKey string
-
 const (
-	DatabaseConnectionKey IdpRequestContextKey = "CONN"
+	CREATE_ACCOUNT_ENDPOINT = "POST /accounts"
+	LOOKUP_ACCOUNT_ENDPOINT = "GET /accounts/{id}"
 )
 
-type TournabyteIdentityProviderService struct {
-	db   *mongo.Client
-	mux  *http.ServeMux
-	conf *model.AppConfig
-}
-
-func NewIdentityProviderServer() (*TournabyteIdentityProviderService, error) {
+/*func NewIdentityProviderServer() (*TournabyteIdentityProviderService, error) {
 
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
@@ -77,4 +56,4 @@ func (server *TournabyteIdentityProviderService) AcquireDb(next http.HandlerFunc
 		ctx := context.WithValue(r.Context(), "CONN", server.db.Database("idp"))
 		next.ServeHTTP(w, r.WithContext(ctx))
 	}
-}
+}*/
