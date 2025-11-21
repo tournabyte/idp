@@ -3,57 +3,93 @@
  */
 package api
 
-const (
-	CREATE_ACCOUNT_ENDPOINT = "POST /accounts"
-	LOOKUP_ACCOUNT_ENDPOINT = "GET /accounts/{id}"
+import (
+	"context"
+	"log"
+	"net/http"
+	"unicode"
+
+	"github.com/tournabyte/idp/model"
 )
 
-/*func NewIdentityProviderServer() (*TournabyteIdentityProviderService, error) {
-
-	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
-	defer cancel()
-
-	opts := options.Client()
-	conn, conn_err := mongo.Connect(opts)
-
-	if conn_err != nil {
-		return nil, conn_err
-	}
-
-	if ping_err := conn.Ping(ctx, readpref.Primary()); ping_err != nil {
-		return nil, ping_err
-	}
-
-	log.Printf("Using `%s` as the database", opts.GetURI())
-
-	return &TournabyteIdentityProviderService{
-		db:  conn,
-		mux: http.NewServeMux(),
-	}, nil
+type PalindromeCheckRequest struct {
+	Query string `json:"s"`
 }
 
-func (server *TournabyteIdentityProviderService) AddHandler(route string, handler http.HandlerFunc) {
-	server.mux.HandleFunc(route, handler)
+type PalindromeCheckResponse struct {
+	Input  string `json:"input"`
+	Result bool   `json:"result"`
 }
 
-func (server *TournabyteIdentityProviderService) RunServer(port int) error {
-	listener := &http.Server{
-		Addr:    fmt.Sprintf(":%d", port),
-		Handler: server.mux,
-	}
-
-	return listener.ListenAndServe()
-}
-
-func (server *TournabyteIdentityProviderService) ConfigureServer() *TournabyteIdentityProviderService {
-	server.AddHandler("POST /accounts", server.AcquireDb(createAccount))
-	server.AddHandler("GET /accounts/{id}", server.AcquireDb(getAccount))
-	return server
-}
-
-func (server *TournabyteIdentityProviderService) AcquireDb(next http.HandlerFunc) http.HandlerFunc {
+func PalindromeCheck(emitResponse http.HandlerFunc) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		ctx := context.WithValue(r.Context(), "CONN", server.db.Database("idp"))
-		next.ServeHTTP(w, r.WithContext(ctx))
+		if requestBody, ok := r.Context().Value(DECODED_JSON_BODY).(PalindromeCheckRequest); !ok {
+			log.Printf("Body not present or of incorrect type %T, updating the request context with an error response", requestBody)
+			r = r.WithContext(
+				context.WithValue(
+					r.Context(),
+					HANDLER_STATUS_CODE,
+					http.StatusBadRequest,
+				))
+			r = r.WithContext(
+				context.WithValue(
+					r.Context(),
+					HANDLER_RESPONSE_BODY,
+					model.ErrorResponse{Reason: "NO_INPUT_PROVIDED", Message: "Handler requires an input to check"},
+				))
+			emitResponse(w, r)
+			defer RecoverResponse(w, r)
+			panic("Missing context: expected body")
+		} else {
+			log.Printf("Body obtained from request body, processing the data")
+			s := []rune(requestBody.Query)
+			i, j := 0, len(s)-1
+
+			for i < j {
+				for i < j && !unicode.IsLetter(s[i]) && !unicode.IsDigit(s[i]) {
+					i++
+				}
+				for i < j && !unicode.IsLetter(s[j]) && !unicode.IsDigit(s[j]) {
+					j--
+				}
+
+				if unicode.ToLower(s[i]) != unicode.ToLower(s[j]) {
+					log.Printf("Violation found with input, updating the request context with a false response")
+					r = r.WithContext(
+						context.WithValue(
+							r.Context(),
+							HANDLER_STATUS_CODE,
+							http.StatusOK,
+						))
+					r = r.WithContext(
+						context.WithValue(
+							r.Context(),
+							HANDLER_RESPONSE_BODY,
+							PalindromeCheckResponse{Input: requestBody.Query, Result: false},
+						))
+					emitResponse(w, r)
+					return
+				}
+				i++
+				j--
+			}
+
+			log.Printf("No violations found with the input, updating the request context with a true response")
+			r = r.WithContext(
+				context.WithValue(
+					r.Context(),
+					HANDLER_STATUS_CODE,
+					http.StatusOK,
+				))
+			r = r.WithContext(
+				context.WithValue(
+					r.Context(),
+					HANDLER_RESPONSE_BODY,
+					PalindromeCheckResponse{Input: requestBody.Query, Result: true},
+				))
+			log.Printf("ctx.Value(HANDLER_STATUS_CODE) = %#v", r.Context().Value(HANDLER_STATUS_CODE))
+			emitResponse(w, r)
+
+		}
 	}
-}*/
+}

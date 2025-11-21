@@ -21,9 +21,6 @@ import (
 	"go.mongodb.org/mongo-driver/v2/mongo/readpref"
 )
 
-type OperationResult struct {
-}
-
 type TournabyteIdentityProviderService struct {
 	db  *mongo.Client
 	mux *http.ServeMux
@@ -31,19 +28,17 @@ type TournabyteIdentityProviderService struct {
 
 var listenOn int
 
-type TournabyteIdentityProviderOperation func(ctx context.Context) OperationResult
-
 func NewIdentityProviderServer(opts model.CommandOpts) (*TournabyteIdentityProviderService, error) {
 	var tbyteService TournabyteIdentityProviderService
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	if conn_err := tbyteService.connectDatabase(opts.Dbhosts, opts.Dbname, opts.Dbuser, opts.Dbpass); conn_err != nil {
-		return nil, fmt.Errorf("Could not connect to database: %w", conn_err)
+	if connErr := tbyteService.connectDatabase(opts.Dbhosts, opts.Dbname, opts.Dbuser, opts.Dbpass); connErr != nil {
+		return nil, fmt.Errorf("Could not connect to database: %w", connErr)
 	}
 
-	if ping_err := tbyteService.pingDatabase(ctx); ping_err != nil {
-		return nil, fmt.Errorf("Database unreachable: %w", ping_err)
+	if pingErr := tbyteService.pingDatabase(ctx); pingErr != nil {
+		return nil, fmt.Errorf("Database unreachable: %w", pingErr)
 	}
 
 	tbyteService.configureHandlers()
@@ -110,17 +105,14 @@ func (provider *TournabyteIdentityProviderService) configureHandlers() {
 		time.Sleep(3 * time.Second)
 		w.Write([]byte(fmt.Sprintf("Response received from `%s` handler", LOOKUP_ACCOUNT_ENDPOINT)))
 	})
+	provider.mux.HandleFunc(
+		"POST /check/palindrome",
+		SetRequestTimeout(
+			ReadRequestBodyAsJSON[PalindromeCheckRequest](
+				PalindromeCheck(
+					EmitResponseAsJSON[PalindromeCheckResponse],
+				)), 10))
 }
-
-/*
-	func (provider *TournabyteIdentityProviderService) getAccount(ctx context.Context) OperationResult {
-		return OperationResult{}
-	}
-
-	func (provider *TournabyteIdentityProviderService) makeAccount(ctx context.Context) OperationResult {
-		return OperationResult{}
-	}
-*/
 
 func (provider *TournabyteIdentityProviderService) Run() {
 	server := &http.Server{
@@ -144,7 +136,8 @@ func (provider *TournabyteIdentityProviderService) Run() {
 	defer cancel()
 
 	if err := server.Shutdown(ctx); err != nil {
-		log.Fatalf("Server exited ungracefully: %v", err)
+		server.Close()
+		log.Fatalf("Could not shutdown the server, forcing it anyway %v", err)
 	}
 	log.Println("Server exited gracefully")
 }
