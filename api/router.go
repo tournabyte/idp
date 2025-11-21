@@ -5,6 +5,7 @@ package api
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"net/http"
@@ -16,6 +17,7 @@ import (
 	"time"
 
 	"github.com/tournabyte/idp/model"
+	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
 	"go.mongodb.org/mongo-driver/v2/mongo/options"
 	"go.mongodb.org/mongo-driver/v2/mongo/readpref"
@@ -95,16 +97,16 @@ func (provider *TournabyteIdentityProviderService) pingDatabase(ctx context.Cont
 
 func (provider *TournabyteIdentityProviderService) configureHandlers() {
 	provider.mux = http.NewServeMux()
-	provider.mux.HandleFunc(CREATE_ACCOUNT_ENDPOINT, func(w http.ResponseWriter, r *http.Request) {
-		log.Printf("Handler for `%s` invoked", CREATE_ACCOUNT_ENDPOINT)
-		time.Sleep(3 * time.Second)
-		w.Write([]byte(fmt.Sprintf("Response received from `%s` handler", CREATE_ACCOUNT_ENDPOINT)))
-	})
-	provider.mux.HandleFunc(LOOKUP_ACCOUNT_ENDPOINT, func(w http.ResponseWriter, r *http.Request) {
-		log.Printf("Handler for `%s` invoked", LOOKUP_ACCOUNT_ENDPOINT)
-		time.Sleep(3 * time.Second)
-		w.Write([]byte(fmt.Sprintf("Response received from `%s` handler", LOOKUP_ACCOUNT_ENDPOINT)))
-	})
+	provider.mux.HandleFunc(
+		CREATE_ACCOUNT_ENDPOINT,
+		SetRequestTimeout(ReadRequestBodyAsJSON[model.CreateAccountRequest](provider.createAccount), 30),
+	)
+
+	provider.mux.HandleFunc(
+		LOOKUP_ACCOUNT_ENDPOINT,
+		SetRequestTimeout(ExtractPathParameters(provider.findAccountById, "id"), 30),
+	)
+
 	provider.mux.HandleFunc(
 		"POST /check/palindrome",
 		SetRequestTimeout(
@@ -140,4 +142,117 @@ func (provider *TournabyteIdentityProviderService) Run() {
 		log.Fatalf("Could not shutdown the server, forcing it anyway %v", err)
 	}
 	log.Println("Server exited gracefully")
+}
+
+func (provider *TournabyteIdentityProviderService) findAccountById(w http.ResponseWriter, r *http.Request) {
+	if idHex, ok := r.Context().Value(PATH_VALUE_MAPPING).(map[string]string)["id"]; ok {
+		accountsCollectionHandle := model.NewTournabyteAccountRepository(provider.db.Database("idp"))
+		account, findErr := accountsCollectionHandle.FindById(r.Context(), idHex)
+
+		switch {
+		case errors.Is(findErr, mongo.ErrNoDocuments):
+			r = r.WithContext(
+				context.WithValue(r.Context(), HANDLER_STATUS_CODE, http.StatusNotFound),
+			)
+			r = r.WithContext(
+				context.WithValue(
+					r.Context(),
+					HANDLER_RESPONSE_BODY,
+					model.ErrorResponse{Reason: "NO_MATCHING_RESOURCE", Message: "No resource found for the given object ID"},
+				))
+			defer RecoverResponse(w, r)
+			panic("Resource not found")
+
+		case errors.Is(findErr, bson.ErrInvalidHex):
+			r = r.WithContext(
+				context.WithValue(r.Context(), HANDLER_STATUS_CODE, http.StatusBadRequest),
+			)
+			r = r.WithContext(
+				context.WithValue(
+					r.Context(),
+					HANDLER_RESPONSE_BODY,
+					model.ErrorResponse{Reason: "PATH_PARAMETER_MALFORMED", Message: "Given hex is not a valid object ID"},
+				))
+			defer RecoverResponse(w, r)
+			panic("ID parameter invalid")
+
+		default:
+			r = r.WithContext(
+				context.WithValue(r.Context(), HANDLER_STATUS_CODE, http.StatusOK),
+			)
+			r = r.WithContext(
+				context.WithValue(
+					r.Context(),
+					HANDLER_RESPONSE_BODY,
+					*account,
+				))
+			EmitResponseAsJSON[model.Account](w, r)
+		}
+
+	} else {
+		r = r.WithContext(
+			context.WithValue(r.Context(), HANDLER_STATUS_CODE, http.StatusNotFound),
+		)
+		r = r.WithContext(
+			context.WithValue(
+				r.Context(),
+				HANDLER_RESPONSE_BODY,
+				model.ErrorResponse{Reason: "PATH_PARAMETER_NOT_PRESENT", Message: "Required dynamic path part not present"},
+			))
+		defer RecoverResponse(w, r)
+		panic("Required dynamic path part not present")
+
+	}
+}
+
+func (provider *TournabyteIdentityProviderService) createAccount(w http.ResponseWriter, r *http.Request) {
+	if deadline, ok := r.Context().Deadline(); ok {
+		log.Printf("Time remaining: %d", time.Until(deadline))
+	} else {
+		log.Printf("Deadline already exceeded")
+	}
+	if newAccountDetails, ok := r.Context().Value(DECODED_JSON_BODY).(model.CreateAccountRequest); ok {
+		accountsCollectionHandle := model.NewTournabyteAccountRepository(provider.db.Database("idp"))
+		newAccountRecord := model.Account{Email: newAccountDetails.NewAccountEmail}
+		if createErr := accountsCollectionHandle.Create(r.Context(), &newAccountRecord); createErr != nil {
+			log.Printf("Did not create the account: %v", createErr)
+			r = r.WithContext(
+				context.WithValue(r.Context(), HANDLER_STATUS_CODE, http.StatusInternalServerError),
+			)
+			r = r.WithContext(
+				context.WithValue(
+					r.Context(),
+					HANDLER_RESPONSE_BODY,
+					model.ErrorResponse{Reason: "ACCOUNT_NOT_CREATED", Message: "Did not create the requested account"},
+				))
+			defer RecoverResponse(w, r)
+			panic("Account creation failed")
+
+		}
+		log.Printf("Created the account: %v", newAccountRecord)
+		r = r.WithContext(
+			context.WithValue(r.Context(), HANDLER_STATUS_CODE, http.StatusCreated),
+		)
+		r = r.WithContext(
+			context.WithValue(
+				r.Context(),
+				HANDLER_RESPONSE_BODY,
+				newAccountRecord,
+			))
+		EmitResponseAsJSON[model.Account](w, r)
+
+	} else {
+		r = r.WithContext(
+			context.WithValue(r.Context(), HANDLER_STATUS_CODE, http.StatusBadRequest),
+		)
+		r = r.WithContext(
+			context.WithValue(
+				r.Context(),
+				HANDLER_RESPONSE_BODY,
+				model.ErrorResponse{Reason: "INVALID_JSON_BODY", Message: "Required body is not present or incorrectly structured"},
+			))
+		defer RecoverResponse(w, r)
+		panic("Required dynamic path part not present")
+
+	}
 }

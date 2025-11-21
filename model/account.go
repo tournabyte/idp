@@ -6,7 +6,6 @@ package model
 
 import (
 	"context"
-	"encoding/json"
 
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
@@ -15,10 +14,6 @@ import (
 type Account struct {
 	Id    bson.ObjectID `bson:"_id,omitempty"`
 	Email string        `bson:"email"`
-}
-
-func (a *Account) Serialize() ([]byte, error) {
-	return json.Marshal(a)
 }
 
 type TournabyteAccountRepository struct {

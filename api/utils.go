@@ -29,6 +29,8 @@ const (
 	HANDLER_STATUS_CODE   = "RESPONSE_STATUS"
 )
 
+type HandlerFuncProcessingStep func(http.HandlerFunc) http.HandlerFunc
+
 func RecoverResponse(w http.ResponseWriter, r *http.Request) {
 	if err := recover(); err != nil {
 		log.Printf("Recovering from a fatal error from the http.HandlerFunc sequence: %v", err)
@@ -59,8 +61,12 @@ func RecoverResponse(w http.ResponseWriter, r *http.Request) {
 func SetRequestTimeout(next http.HandlerFunc, seconds int) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		log.Printf("Allowing up to %d seconds for processing this request", seconds)
-		ctx, cancel := context.WithTimeout(r.Context(), time.Duration(seconds))
+		ctx, cancel := context.WithTimeout(r.Context(), time.Duration(seconds)*time.Second)
 		defer cancel()
+
+		go func() {
+
+		}()
 		next.ServeHTTP(w, r.WithContext(ctx))
 	}
 }
@@ -109,6 +115,41 @@ func ReadRequestBodyAsJSON[T any](next http.HandlerFunc) http.HandlerFunc {
 				DECODED_JSON_BODY,
 				decodedPayload,
 			)))
+	}
+}
+
+func ExtractPathParameters(next http.HandlerFunc, parts ...string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		pathParamMap := make(map[string]string)
+
+		for _, p := range parts {
+			if val := r.PathValue(p); val == "" {
+				log.Printf("Expected a dynamic value for %s but found none", p)
+				r = r.WithContext(
+					context.WithValue(r.Context(), HANDLER_STATUS_CODE, http.StatusNotFound),
+				)
+				r = r.WithContext(
+					context.WithValue(
+						r.Context(),
+						HANDLER_RESPONSE_BODY,
+						model.ErrorResponse{Reason: "PATH_PARAMETER_NOT_PRESENT", Message: "Required dynamic path part not present"},
+					))
+				defer RecoverResponse(w, r)
+				panic("Required dynamic path part not present")
+
+			} else {
+				log.Printf("Found dynamic path value %s=%s", p, val)
+				pathParamMap[p] = val
+			}
+		}
+
+		r = r.WithContext(
+			context.WithValue(
+				r.Context(),
+				PATH_VALUE_MAPPING,
+				pathParamMap,
+			))
+		next(w, r)
 	}
 }
 
