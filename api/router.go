@@ -107,13 +107,6 @@ func (provider *TournabyteIdentityProviderService) configureHandlers() {
 		SetRequestTimeout(ExtractPathParameters(provider.findAccountById, "id"), 30),
 	)
 
-	provider.mux.HandleFunc(
-		"POST /check/palindrome",
-		SetRequestTimeout(
-			ReadRequestBodyAsJSON[PalindromeCheckRequest](
-				PalindromeCheck(
-					EmitResponseAsJSON[PalindromeCheckResponse],
-				)), 10))
 }
 
 func (provider *TournabyteIdentityProviderService) Run() {
