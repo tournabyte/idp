@@ -9,6 +9,7 @@ import (
 
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
+	"go.mongodb.org/mongo-driver/v2/mongo/options"
 )
 
 type Account struct {
@@ -16,14 +17,25 @@ type Account struct {
 	Email string        `bson:"email"`
 }
 
-type TournabyteAccountRepository struct {
-	collection *mongo.Collection
+type InsertOneDocumment interface {
+	InsertOne(ctx context.Context, doc any, opts ...*options.InsertOneOptions) (*mongo.InsertOneResult, error)
 }
 
-func NewTournabyteAccountRepository(db *mongo.Database) *TournabyteAccountRepository {
-	return &TournabyteAccountRepository{
-		db.Collection("accounts"),
-	}
+type FindOneDocument interface {
+	FindOne(ctx context.Context, filter any, opts ...*options.FindOneOptions) *mongo.SingleResult
+}
+
+type CreateAndReadOneDocument interface {
+	InsertOneDocumment
+	FindOneDocument
+}
+
+type TournabyteAccountRepository struct {
+	collection CreateAndReadOneDocument
+}
+
+func NewTournabyteAccountRepository(col CreateAndReadOneDocument) *TournabyteAccountRepository {
+	return &TournabyteAccountRepository{collection: col}
 }
 
 func (r *TournabyteAccountRepository) Create(ctx context.Context, account *Account) error {
