@@ -139,7 +139,9 @@ func (provider *TournabyteIdentityProviderService) Run() {
 
 func (provider *TournabyteIdentityProviderService) findAccountById(w http.ResponseWriter, r *http.Request) {
 	if idHex, ok := r.Context().Value(PATH_VALUE_MAPPING).(map[string]string)["id"]; ok {
-		accountsCollectionHandle := model.NewTournabyteAccountRepository(provider.db.Database("idp"))
+		accountsCollectionHandle := model.NewTournabyteAccountRepository(
+			provider.db.Database("idp").Collection("accounts"),
+		)
 		account, findErr := accountsCollectionHandle.FindById(r.Context(), idHex)
 
 		switch {
@@ -205,7 +207,9 @@ func (provider *TournabyteIdentityProviderService) createAccount(w http.Response
 		log.Printf("Deadline already exceeded")
 	}
 	if newAccountDetails, ok := r.Context().Value(DECODED_JSON_BODY).(model.CreateAccountRequest); ok {
-		accountsCollectionHandle := model.NewTournabyteAccountRepository(provider.db.Database("idp"))
+		accountsCollectionHandle := model.NewTournabyteAccountRepository(
+			provider.db.Database("idp").Collection("accounts"),
+		)
 		newAccountRecord := model.Account{Email: newAccountDetails.NewAccountEmail}
 		if createErr := accountsCollectionHandle.Create(r.Context(), &newAccountRecord); createErr != nil {
 			log.Printf("Did not create the account: %v", createErr)

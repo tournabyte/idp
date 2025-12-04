@@ -6,6 +6,7 @@ package model
 
 import (
 	"context"
+	"time"
 
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
@@ -13,16 +14,19 @@ import (
 )
 
 type Account struct {
-	Id    bson.ObjectID `bson:"_id,omitempty"`
-	Email string        `bson:"email"`
+	Id           bson.ObjectID `bson:"_id,omitempty" json:"id"`
+	Email        string        `bson:"email" json:"email"`
+	Active       bool          `bson:"active" json:"active"`
+	CreatedAt    time.Time     `bson:"created_at" json:"created"`
+	LastModified time.Time     `bson:"modified_at" json:"modified"`
 }
 
 type InsertOneDocumment interface {
-	InsertOne(ctx context.Context, doc any, opts ...*options.InsertOneOptions) (*mongo.InsertOneResult, error)
+	InsertOne(ctx context.Context, doc any, opts ...options.Lister[options.InsertOneOptions]) (*mongo.InsertOneResult, error)
 }
 
 type FindOneDocument interface {
-	FindOne(ctx context.Context, filter any, opts ...*options.FindOneOptions) *mongo.SingleResult
+	FindOne(ctx context.Context, filter any, opts ...options.Lister[options.FindOneOptions]) *mongo.SingleResult
 }
 
 type CreateAndReadOneDocument interface {
@@ -39,6 +43,10 @@ func NewTournabyteAccountRepository(col CreateAndReadOneDocument) *TournabyteAcc
 }
 
 func (r *TournabyteAccountRepository) Create(ctx context.Context, account *Account) error {
+	account.Active = true
+	account.CreatedAt = time.Now().UTC()
+	account.LastModified = time.Now().UTC()
+
 	result, err := r.collection.InsertOne(ctx, account)
 	if err != nil {
 		return err
@@ -57,7 +65,7 @@ func (r *TournabyteAccountRepository) FindById(ctx context.Context, idHex string
 		return nil, convertIdErr
 	}
 
-	filter = bson.D{{Key: "_id", Value: oid}}
+	filter = bson.D{{Key: "_id", Value: oid}, {Key: "active", Value: true}}
 	findDocumentErr := r.collection.FindOne(ctx, filter).Decode(&account)
 	if findDocumentErr == mongo.ErrNoDocuments {
 		return nil, findDocumentErr

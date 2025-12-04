@@ -21,12 +21,12 @@ type MockCollectionHandle struct {
 	mock.Mock
 }
 
-func (m *MockCollectionHandle) InsertOne(ctx context.Context, doc any, opts ...*options.InsertOneOptions) (*mongo.InsertOneResult, error) {
+func (m *MockCollectionHandle) InsertOne(ctx context.Context, doc any, opts ...options.Lister[options.InsertOneOptions]) (*mongo.InsertOneResult, error) {
 	args := m.Called(ctx, doc)
 	return args.Get(0).(*mongo.InsertOneResult), args.Error(1)
 }
 
-func (m *MockCollectionHandle) FindOne(ctx context.Context, filter any, opts ...*options.FindOneOptions) *mongo.SingleResult {
+func (m *MockCollectionHandle) FindOne(ctx context.Context, filter any, opts ...options.Lister[options.FindOneOptions]) *mongo.SingleResult {
 	args := m.Called(ctx, filter)
 	return args.Get(0).(*mongo.SingleResult)
 }
