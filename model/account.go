@@ -14,13 +14,24 @@ import (
 )
 
 type Account struct {
-	Id                            bson.ObjectID `bson:"_id,omitempty" json:"id"`
-	Email                         string        `bson:"email" json:"email"`
-	Active                        bool          `bson:"active" json:"active"`
-	CreatedAt                     time.Time     `bson:"created_at" json:"created"`
-	LastModified                  time.Time     `bson:"modified_at" json:"modified"`
-	LoginKey                      string        `bson:"login_key" json:"login_key"`
-	LoginAttemptsSinceLastSuccess int           `bson:"login_attempts" json:"login_attempts"`
+	Id                            bson.ObjectID `bson:"_id,omitempty"`
+	Email                         string        `bson:"email"`
+	Active                        bool          `bson:"active"`
+	CreatedAt                     time.Time     `bson:"created_at"`
+	LastModified                  time.Time     `bson:"modified_at"`
+	LoginKey                      string        `bson:"login_key"`
+	LoginAttemptsSinceLastSuccess int           `bson:"login_attempts"`
+}
+
+func (a *Account) BasicInfo() BasicAccountInfoResponse {
+	var info BasicAccountInfoResponse
+
+	info.AccountIdentifier = a.Id
+	info.AccountContact = a.Email
+	info.AccountCreatedTime = a.CreatedAt
+	info.AccountModifiedAt = a.LastModified
+
+	return info
 }
 
 type InsertOneDocumment interface {
@@ -68,6 +79,18 @@ func (r *TournabyteAccountRepository) FindById(ctx context.Context, idHex string
 	}
 
 	filter = bson.D{{Key: "_id", Value: oid}, {Key: "active", Value: true}}
+	findDocumentErr := r.collection.FindOne(ctx, filter).Decode(&account)
+	if findDocumentErr == mongo.ErrNoDocuments {
+		return nil, findDocumentErr
+	}
+	return &account, nil
+}
+
+func (r *TournabyteAccountRepository) FindByEmail(ctx context.Context, email string) (*Account, error) {
+	var account Account
+	var filter bson.D
+
+	filter = bson.D{{Key: "email", Value: email}}
 	findDocumentErr := r.collection.FindOne(ctx, filter).Decode(&account)
 	if findDocumentErr == mongo.ErrNoDocuments {
 		return nil, findDocumentErr

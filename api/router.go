@@ -16,6 +16,7 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/alexedwards/argon2id"
 	"github.com/tournabyte/idp/model"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
@@ -107,6 +108,11 @@ func (provider *TournabyteIdentityProviderService) configureHandlers() {
 		SetRequestTimeout(ExtractPathParameters(provider.findAccountById, "id"), 30),
 	)
 
+	provider.mux.HandleFunc(
+		AUTHORIZE_LOGIN,
+		SetRequestTimeout(ReadRequestBodyAsJSON[model.LoginAttempt](provider.authorizeAccount), 30),
+	)
+
 }
 
 func (provider *TournabyteIdentityProviderService) Run() {
@@ -179,9 +185,9 @@ func (provider *TournabyteIdentityProviderService) findAccountById(w http.Respon
 				context.WithValue(
 					r.Context(),
 					HANDLER_RESPONSE_BODY,
-					*account,
+					account.BasicInfo(),
 				))
-			EmitResponseAsJSON[model.Account](w, r)
+			EmitResponseAsJSON[model.BasicAccountInfoResponse](w, r)
 		}
 
 	} else {
@@ -201,16 +207,14 @@ func (provider *TournabyteIdentityProviderService) findAccountById(w http.Respon
 }
 
 func (provider *TournabyteIdentityProviderService) createAccount(w http.ResponseWriter, r *http.Request) {
-	if deadline, ok := r.Context().Deadline(); ok {
-		log.Printf("Time remaining: %d", time.Until(deadline))
-	} else {
-		log.Printf("Deadline already exceeded")
-	}
 	if newAccountDetails, ok := r.Context().Value(DECODED_JSON_BODY).(model.CreateAccountRequest); ok {
 		accountsCollectionHandle := model.NewTournabyteAccountRepository(
 			provider.db.Database("idp").Collection("accounts"),
 		)
-		newAccountRecord := model.Account{Email: newAccountDetails.NewAccountEmail}
+		newAccountRecord := model.Account{
+			Email:    newAccountDetails.NewAccountEmail,
+			LoginKey: provider.mustHashPassword(newAccountDetails.NewAccountPassword),
+		}
 		if createErr := accountsCollectionHandle.Create(r.Context(), &newAccountRecord); createErr != nil {
 			log.Printf("Did not create the account: %v", createErr)
 			r = r.WithContext(
@@ -252,4 +256,15 @@ func (provider *TournabyteIdentityProviderService) createAccount(w http.Response
 		panic("Required dynamic path part not present")
 
 	}
+}
+
+func (provider *TournabyteIdentityProviderService) authorizeAccount(w http.ResponseWriter, r *http.Request) {
+}
+
+func (provider *TournabyteIdentityProviderService) mustHashPassword(passwd string) string {
+	hash, err := argon2id.CreateHash(passwd, argon2id.DefaultParams)
+	if err != nil {
+		panic("Hashing failed")
+	}
+	return hash
 }

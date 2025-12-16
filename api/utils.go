@@ -17,6 +17,7 @@ import (
 const (
 	CREATE_ACCOUNT_ENDPOINT = "POST /accounts"
 	LOOKUP_ACCOUNT_ENDPOINT = "GET /accounts/{id}"
+	AUTHORIZE_LOGIN         = "POST /accounts/authtoken"
 )
 
 type RequestContextKey string
