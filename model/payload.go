@@ -28,7 +28,7 @@ type ErrorResponse struct {
 }
 
 type LoginAttempt struct {
-	LoginId     string `json:"autheticate_as"`
+	LoginId     string `json:"authenticate_as"`
 	LoginSecret string `json:"passphrase"`
 }
 

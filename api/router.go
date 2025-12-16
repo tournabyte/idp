@@ -259,6 +259,80 @@ func (provider *TournabyteIdentityProviderService) createAccount(w http.Response
 }
 
 func (provider *TournabyteIdentityProviderService) authorizeAccount(w http.ResponseWriter, r *http.Request) {
+	if loginAttempt, ok := r.Context().Value(DECODED_JSON_BODY).(model.LoginAttempt); ok {
+		accountsCollectionHandle := model.NewTournabyteAccountRepository(
+			provider.db.Database("idp").Collection("accounts"),
+		)
+		if acc, err := accountsCollectionHandle.FindByEmail(r.Context(), loginAttempt.LoginId); err != nil {
+			log.Printf("No account found with email: %s", loginAttempt.LoginId)
+			r = r.WithContext(
+				context.WithValue(r.Context(), HANDLER_STATUS_CODE, http.StatusForbidden),
+			)
+			r = r.WithContext(
+				context.WithValue(
+					r.Context(),
+					HANDLER_RESPONSE_BODY,
+					model.ErrorResponse{Reason: "NO_MATCHING_RESOURCE", Message: "Invalid email or password"},
+				))
+			defer RecoverResponse(w, r)
+			panic("Invalid log in attempt")
+
+		} else {
+			if match, err := argon2id.ComparePasswordAndHash(loginAttempt.LoginSecret, acc.LoginKey); err != nil {
+				log.Printf("Error during password comparison: %v", err)
+				r = r.WithContext(
+					context.WithValue(r.Context(), HANDLER_STATUS_CODE, http.StatusUnauthorized),
+				)
+				r = r.WithContext(
+					context.WithValue(
+						r.Context(),
+						HANDLER_RESPONSE_BODY,
+						model.ErrorResponse{Reason: "NO_MATCHING_RESOURCE", Message: "Invalid email or password"},
+					))
+				defer RecoverResponse(w, r)
+				panic("Invalid log in attempt")
+			} else if !match {
+				log.Printf("Comparison succeeded but no match found")
+				r = r.WithContext(
+					context.WithValue(r.Context(), HANDLER_STATUS_CODE, http.StatusUnauthorized),
+				)
+				r = r.WithContext(
+					context.WithValue(
+						r.Context(),
+						HANDLER_RESPONSE_BODY,
+						model.ErrorResponse{Reason: "NO_MATCHING_RESOURCE", Message: "Invalid email or password"},
+					))
+				defer RecoverResponse(w, r)
+				panic("Invalid log in attempt")
+			} else {
+				log.Printf("Comparison succeeded and match detected")
+				r = r.WithContext(
+					context.WithValue(r.Context(), HANDLER_STATUS_CODE, http.StatusCreated),
+				)
+				r = r.WithContext(
+					context.WithValue(
+						r.Context(),
+						HANDLER_RESPONSE_BODY,
+						model.SuccessfulAuthenticationResponse{Token: "token"},
+					))
+				EmitResponseAsJSON[model.SuccessfulAuthenticationResponse](w, r)
+
+			}
+		}
+	} else {
+		r = r.WithContext(
+			context.WithValue(r.Context(), HANDLER_STATUS_CODE, http.StatusBadRequest),
+		)
+		r = r.WithContext(
+			context.WithValue(
+				r.Context(),
+				HANDLER_RESPONSE_BODY,
+				model.ErrorResponse{Reason: "INVALID_JSON_BODY", Message: "Required body is not present or incorrectly structured"},
+			))
+		defer RecoverResponse(w, r)
+		panic("Invalid log in attempt")
+
+	}
 }
 
 func (provider *TournabyteIdentityProviderService) mustHashPassword(passwd string) string {
