@@ -14,11 +14,13 @@ import (
 )
 
 type Account struct {
-	Id           bson.ObjectID `bson:"_id,omitempty" json:"id"`
-	Email        string        `bson:"email" json:"email"`
-	Active       bool          `bson:"active" json:"active"`
-	CreatedAt    time.Time     `bson:"created_at" json:"created"`
-	LastModified time.Time     `bson:"modified_at" json:"modified"`
+	Id                            bson.ObjectID `bson:"_id,omitempty" json:"id"`
+	Email                         string        `bson:"email" json:"email"`
+	Active                        bool          `bson:"active" json:"active"`
+	CreatedAt                     time.Time     `bson:"created_at" json:"created"`
+	LastModified                  time.Time     `bson:"modified_at" json:"modified"`
+	LoginKey                      string        `bson:"login_key" json:"login_key"`
+	LoginAttemptsSinceLastSuccess int           `bson:"login_attempts" json:"login_attempts"`
 }
 
 type InsertOneDocumment interface {
