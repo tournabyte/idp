@@ -7,7 +7,7 @@ import (
 	"log"
 
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
+	"github.com/tournabyte/idp/model"
 )
 
 var rootCmd = &cobra.Command{
@@ -16,24 +16,23 @@ var rootCmd = &cobra.Command{
 	PersistentPreRun: getConfig,
 }
 
+var appConf *model.ApplicationConfiguration = model.NewApplicationConfiguration("json", "appconf", []string{"/etc/tournabyte/idp", "$HOME/.local/tournabyte/idp", "."})
+
 func Execute() {
 	rootCmd.Execute()
 }
 
 func getConfig(cmd *cobra.Command, args []string) {
-	log.Println("In `getConfig` persistene pre-run hook")
+	log.Println("In `getConfig` persistent pre-run hook")
 
-	viper.AddConfigPath("/etc/tournabyte/idp")
-	viper.AddConfigPath("$HOME/.local/tournabyte/idp")
-	viper.AddConfigPath(".")
-
-	viper.SetConfigName("appconf")
-	viper.SetConfigType("json")
-
-	if configErr := viper.ReadInConfig(); configErr != nil {
-		log.Fatalf("Error reading config from file: %v", configErr)
+	if err := appConf.PopulateConfiguration(); err != nil {
+		log.Fatalf("Error reading config from file: %v", err)
 	}
-
-	log.Printf("Serve config from file:\n{%v}\n", viper.Get("serve"))
-	log.Printf("Mongo config from file:\n{%v}\n", viper.Get("mongo"))
+	log.Printf("Application configuration after reading config files")
+	log.Printf("\tserve.port: %v", appConf.GetValue("serve.port"))
+	log.Printf("\tserve.jwt.key: %v", appConf.GetValue("serve.jwt.key"))
+	log.Printf("\tserve.jwt.leeway: %v", appConf.GetValue("serve.jwt.leeway"))
+	log.Printf("\tdatastore.hosts: %v", appConf.GetValue("datastore.hosts"))
+	log.Printf("\tdatastore.username: %v", appConf.GetValue("datastore.username"))
+	log.Printf("\tdatastore.password: %v", appConf.GetValue("datastore.password"))
 }

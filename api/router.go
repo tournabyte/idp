@@ -9,10 +9,8 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"net/url"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 	"time"
 
@@ -27,16 +25,18 @@ import (
 type TournabyteIdentityProviderService struct {
 	db  *mongo.Client
 	mux *http.ServeMux
+	env *model.ApplicationOptions
 }
 
-var listenOn int
-
-func NewIdentityProviderServer(opts model.CommandOpts) (*TournabyteIdentityProviderService, error) {
+func NewIdentityProviderServer(opts *model.ApplicationOptions) (*TournabyteIdentityProviderService, error) {
 	var tbyteService TournabyteIdentityProviderService
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	if connErr := tbyteService.connectDatabase(opts.Dbhosts, opts.Dbname, opts.Dbuser, opts.Dbpass); connErr != nil {
+	tbyteService.env = opts
+	tbyteService.configureHandlers()
+
+	if connErr := tbyteService.connectDatabase(); connErr != nil {
 		return nil, fmt.Errorf("Could not connect to database: %w", connErr)
 	}
 
@@ -44,41 +44,19 @@ func NewIdentityProviderServer(opts model.CommandOpts) (*TournabyteIdentityProvi
 		return nil, fmt.Errorf("Database unreachable: %w", pingErr)
 	}
 
-	tbyteService.configureHandlers()
-	listenOn = opts.Port
-
 	return &tbyteService, nil
 }
 
-func (provider *TournabyteIdentityProviderService) connectDatabase(
-	hosts []string,
-	database string,
-	username string,
-	password string,
-) error {
-	var uri string
+func (provider *TournabyteIdentityProviderService) connectDatabase() error {
 	var connectOptions options.ClientOptions
 
-	if len(hosts) == 0 {
-		return fmt.Errorf("at least one host must be provided")
-	}
+	connectOptions.SetHosts(provider.env.Datastore.Hosts)
+	connectOptions.SetAuth(options.Credential{
+		Username:    provider.env.Datastore.Username,
+		Password:    provider.env.Datastore.Password,
+		PasswordSet: true,
+	})
 
-	hostList := strings.Join(hosts, ",")
-	credentials := fmt.Sprintf(
-		"%s:%s",
-		url.QueryEscape(username),
-		url.QueryEscape(password),
-	)
-
-	if database != "" {
-		uri = fmt.Sprintf("mongodb://%s@%s/%s", credentials, hostList, database)
-	} else {
-		uri = fmt.Sprintf("mongodb://%s@%s", credentials, hostList)
-	}
-
-	connectOptions.ApplyURI(uri)
-	connectOptions.Auth.AuthSource = "admin"
-	log.Printf("Using `%s` as the database", connectOptions.GetURI())
 	conn, conn_err := mongo.Connect(&connectOptions)
 	if conn_err != nil {
 		return fmt.Errorf("failed to initialize the mongo client: %w", conn_err)
@@ -117,12 +95,12 @@ func (provider *TournabyteIdentityProviderService) configureHandlers() {
 
 func (provider *TournabyteIdentityProviderService) Run() {
 	server := &http.Server{
-		Addr:    fmt.Sprintf(":%d", listenOn),
+		Addr:    fmt.Sprintf(":%d", provider.env.Serve.Port),
 		Handler: provider.mux,
 	}
 
 	go func() {
-		log.Printf("Starting server on port %d", listenOn)
+		log.Printf("Starting server on port %d", provider.env.Serve.Port)
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("Failed to start service: %v", err)
 		}
