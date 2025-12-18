@@ -15,6 +15,8 @@ import (
 	"time"
 
 	"github.com/alexedwards/argon2id"
+	"github.com/go-jose/go-jose/v4"
+	"github.com/go-jose/go-jose/v4/jwt"
 	"github.com/tournabyte/idp/model"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
@@ -23,9 +25,10 @@ import (
 )
 
 type TournabyteIdentityProviderService struct {
-	db  *mongo.Client
-	mux *http.ServeMux
-	env *model.ApplicationOptions
+	db                 *mongo.Client
+	mux                *http.ServeMux
+	env                *model.ApplicationOptions
+	sessionTokenSigner jose.Signer
 }
 
 func NewIdentityProviderServer(opts *model.ApplicationOptions) (*TournabyteIdentityProviderService, error) {
@@ -44,7 +47,24 @@ func NewIdentityProviderServer(opts *model.ApplicationOptions) (*TournabyteIdent
 		return nil, fmt.Errorf("Database unreachable: %w", pingErr)
 	}
 
+	if signErr := tbyteService.initializeTokenSigner(); signErr != nil {
+		return nil, fmt.Errorf("Failed to create token signer: %w", signErr)
+	}
+
 	return &tbyteService, nil
+}
+
+func (provider *TournabyteIdentityProviderService) initializeTokenSigner() error {
+	signer, err := jose.NewSigner(
+		jose.SigningKey{Algorithm: jose.HS256, Key: []byte(provider.env.Serve.WebToken.Key)},
+		nil,
+	)
+	if err != nil {
+		return err
+	}
+
+	provider.sessionTokenSigner = signer
+	return nil
 }
 
 func (provider *TournabyteIdentityProviderService) connectDatabase() error {
@@ -291,7 +311,7 @@ func (provider *TournabyteIdentityProviderService) authorizeAccount(w http.Respo
 					context.WithValue(
 						r.Context(),
 						HANDLER_RESPONSE_BODY,
-						model.SuccessfulAuthenticationResponse{Token: "token"},
+						model.SuccessfulAuthenticationResponse{Token: provider.makeSessionToken(acc.Id.String())},
 					))
 				EmitResponseAsJSON[model.SuccessfulAuthenticationResponse](w, r)
 
@@ -316,7 +336,23 @@ func (provider *TournabyteIdentityProviderService) authorizeAccount(w http.Respo
 func (provider *TournabyteIdentityProviderService) mustHashPassword(passwd string) string {
 	hash, err := argon2id.CreateHash(passwd, argon2id.DefaultParams)
 	if err != nil {
-		panic("Hashing failed")
+		panic(fmt.Sprintf("Hashing failed: %v", err))
 	}
 	return hash
+}
+
+func (provider *TournabyteIdentityProviderService) makeSessionToken(userId string) string {
+	cl := jwt.Claims{
+		Issuer:   "example.com",
+		Audience: jwt.Audience{"example-audience"},
+		Expiry:   jwt.NewNumericDate(time.Now().Add(24 * time.Hour)),
+		IssuedAt: jwt.NewNumericDate(time.Now()),
+		ID:       userId,
+	}
+
+	raw, err := jwt.Signed(provider.sessionTokenSigner).Claims(cl).Serialize()
+	if err != nil {
+		panic(fmt.Sprintf("JWT creation failed: %v", err))
+	}
+	return raw
 }

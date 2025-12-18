@@ -14,11 +14,11 @@ import (
 
 type ApplicationOptions struct {
 	Serve struct {
-		Port     int
+		Port     int `mapstructure:"port"`
 		WebToken struct {
-			Key    string
-			Leeway time.Duration
-		} `mapstructure:"serve.jwt"`
+			Key    string        `mapstructure:"key"`
+			Leeway time.Duration `mapstructure:"leeway"`
+		} `mapstructure:"jwt"`
 	} `mapstructure:"serve"`
 	Datastore struct {
 		Hosts    []string
