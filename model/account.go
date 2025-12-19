@@ -42,16 +42,21 @@ type FindOneDocument interface {
 	FindOne(ctx context.Context, filter any, opts ...options.Lister[options.FindOneOptions]) *mongo.SingleResult
 }
 
-type CreateAndReadOneDocument interface {
+type UpdateOneDocument interface {
+	UpdateOne(ctx context.Context, filter any, update any, opts ...options.Lister[options.UpdateOneOptions]) (*mongo.UpdateResult, error)
+}
+
+type CreateAndReadAndUpdateOneDocument interface {
 	InsertOneDocumment
 	FindOneDocument
+	UpdateOneDocument
 }
 
 type TournabyteAccountRepository struct {
-	collection CreateAndReadOneDocument
+	collection CreateAndReadAndUpdateOneDocument
 }
 
-func NewTournabyteAccountRepository(col CreateAndReadOneDocument) *TournabyteAccountRepository {
+func NewTournabyteAccountRepository(col CreateAndReadAndUpdateOneDocument) *TournabyteAccountRepository {
 	return &TournabyteAccountRepository{collection: col}
 }
 
@@ -96,4 +101,24 @@ func (r *TournabyteAccountRepository) FindByEmail(ctx context.Context, email str
 		return nil, findDocumentErr
 	}
 	return &account, nil
+}
+
+func (r *TournabyteAccountRepository) ResetLoginAttempts(ctx context.Context, idHex bson.ObjectID) {
+	var update bson.D
+	var filter bson.D
+
+	filter = bson.D{{Key: "_id", Value: idHex}}
+	update = bson.D{{Key: "$set", Value: bson.D{{Key: "login_attempts", Value: 0}}}}
+
+	r.collection.UpdateOne(ctx, filter, update)
+}
+
+func (r *TournabyteAccountRepository) IncrementLoginAttempts(ctx context.Context, idHex bson.ObjectID) {
+	var update bson.D
+	var filter bson.D
+
+	filter = bson.D{{Key: "_id", Value: idHex}}
+	update = bson.D{{Key: "$inc", Value: bson.D{{Key: "login_attempts", Value: 1}}}}
+
+	r.collection.UpdateOne(ctx, filter, update)
 }

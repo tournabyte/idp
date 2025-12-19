@@ -276,6 +276,20 @@ func (provider *TournabyteIdentityProviderService) authorizeAccount(w http.Respo
 			panic("Invalid log in attempt")
 
 		} else {
+			if acc.LoginAttemptsSinceLastSuccess > 5 {
+				log.Printf("Too many attempts at logging in")
+				r = r.WithContext(
+					context.WithValue(r.Context(), HANDLER_STATUS_CODE, http.StatusUnauthorized),
+				)
+				r = r.WithContext(
+					context.WithValue(
+						r.Context(),
+						HANDLER_RESPONSE_BODY,
+						model.ErrorResponse{Reason: "NO_MATCHING_RESOURCE", Message: "Account locked"},
+					))
+				defer RecoverResponse(w, r)
+				panic("Invalid log in attempt")
+			}
 			if match, err := argon2id.ComparePasswordAndHash(loginAttempt.LoginSecret, acc.LoginKey); err != nil {
 				log.Printf("Error during password comparison: %v", err)
 				r = r.WithContext(
@@ -300,10 +314,12 @@ func (provider *TournabyteIdentityProviderService) authorizeAccount(w http.Respo
 						HANDLER_RESPONSE_BODY,
 						model.ErrorResponse{Reason: "NO_MATCHING_RESOURCE", Message: "Invalid email or password"},
 					))
+				accountsCollectionHandle.IncrementLoginAttempts(r.Context(), acc.Id)
 				defer RecoverResponse(w, r)
 				panic("Invalid log in attempt")
 			} else {
 				log.Printf("Comparison succeeded and match detected")
+				accountsCollectionHandle.ResetLoginAttempts(r.Context(), acc.Id)
 				r = r.WithContext(
 					context.WithValue(r.Context(), HANDLER_STATUS_CODE, http.StatusCreated),
 				)
