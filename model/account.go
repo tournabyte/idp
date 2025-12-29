@@ -14,11 +14,24 @@ import (
 )
 
 type Account struct {
-	Id           bson.ObjectID `bson:"_id,omitempty" json:"id"`
-	Email        string        `bson:"email" json:"email"`
-	Active       bool          `bson:"active" json:"active"`
-	CreatedAt    time.Time     `bson:"created_at" json:"created"`
-	LastModified time.Time     `bson:"modified_at" json:"modified"`
+	Id                            bson.ObjectID `bson:"_id,omitempty"`
+	Email                         string        `bson:"email"`
+	Active                        bool          `bson:"active"`
+	CreatedAt                     time.Time     `bson:"created_at"`
+	LastModified                  time.Time     `bson:"modified_at"`
+	LoginKey                      string        `bson:"login_key"`
+	LoginAttemptsSinceLastSuccess int           `bson:"login_attempts"`
+}
+
+func (a *Account) BasicInfo() BasicAccountInfoResponse {
+	var info BasicAccountInfoResponse
+
+	info.AccountIdentifier = a.Id
+	info.AccountContact = a.Email
+	info.AccountCreatedTime = a.CreatedAt
+	info.AccountModifiedAt = a.LastModified
+
+	return info
 }
 
 type InsertOneDocumment interface {
@@ -29,16 +42,21 @@ type FindOneDocument interface {
 	FindOne(ctx context.Context, filter any, opts ...options.Lister[options.FindOneOptions]) *mongo.SingleResult
 }
 
-type CreateAndReadOneDocument interface {
+type UpdateOneDocument interface {
+	UpdateOne(ctx context.Context, filter any, update any, opts ...options.Lister[options.UpdateOneOptions]) (*mongo.UpdateResult, error)
+}
+
+type CreateAndReadAndUpdateOneDocument interface {
 	InsertOneDocumment
 	FindOneDocument
+	UpdateOneDocument
 }
 
 type TournabyteAccountRepository struct {
-	collection CreateAndReadOneDocument
+	collection CreateAndReadAndUpdateOneDocument
 }
 
-func NewTournabyteAccountRepository(col CreateAndReadOneDocument) *TournabyteAccountRepository {
+func NewTournabyteAccountRepository(col CreateAndReadAndUpdateOneDocument) *TournabyteAccountRepository {
 	return &TournabyteAccountRepository{collection: col}
 }
 
@@ -71,4 +89,36 @@ func (r *TournabyteAccountRepository) FindById(ctx context.Context, idHex string
 		return nil, findDocumentErr
 	}
 	return &account, nil
+}
+
+func (r *TournabyteAccountRepository) FindByEmail(ctx context.Context, email string) (*Account, error) {
+	var account Account
+	var filter bson.D
+
+	filter = bson.D{{Key: "email", Value: email}}
+	findDocumentErr := r.collection.FindOne(ctx, filter).Decode(&account)
+	if findDocumentErr == mongo.ErrNoDocuments {
+		return nil, findDocumentErr
+	}
+	return &account, nil
+}
+
+func (r *TournabyteAccountRepository) ResetLoginAttempts(ctx context.Context, idHex bson.ObjectID) {
+	var update bson.D
+	var filter bson.D
+
+	filter = bson.D{{Key: "_id", Value: idHex}}
+	update = bson.D{{Key: "$set", Value: bson.D{{Key: "login_attempts", Value: 0}}}}
+
+	r.collection.UpdateOne(ctx, filter, update)
+}
+
+func (r *TournabyteAccountRepository) IncrementLoginAttempts(ctx context.Context, idHex bson.ObjectID) {
+	var update bson.D
+	var filter bson.D
+
+	filter = bson.D{{Key: "_id", Value: idHex}}
+	update = bson.D{{Key: "$inc", Value: bson.D{{Key: "login_attempts", Value: 1}}}}
+
+	r.collection.UpdateOne(ctx, filter, update)
 }

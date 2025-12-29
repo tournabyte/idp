@@ -9,13 +9,14 @@ import (
 	"fmt"
 	"log"
 	"net/http"
-	"net/url"
 	"os"
 	"os/signal"
-	"strings"
 	"syscall"
 	"time"
 
+	"github.com/alexedwards/argon2id"
+	"github.com/go-jose/go-jose/v4"
+	"github.com/go-jose/go-jose/v4/jwt"
 	"github.com/tournabyte/idp/model"
 	"go.mongodb.org/mongo-driver/v2/bson"
 	"go.mongodb.org/mongo-driver/v2/mongo"
@@ -24,18 +25,21 @@ import (
 )
 
 type TournabyteIdentityProviderService struct {
-	db  *mongo.Client
-	mux *http.ServeMux
+	db                 *mongo.Client
+	mux                *http.ServeMux
+	env                *model.ApplicationOptions
+	sessionTokenSigner jose.Signer
 }
 
-var listenOn int
-
-func NewIdentityProviderServer(opts model.CommandOpts) (*TournabyteIdentityProviderService, error) {
+func NewIdentityProviderServer(opts *model.ApplicationOptions) (*TournabyteIdentityProviderService, error) {
 	var tbyteService TournabyteIdentityProviderService
 	ctx, cancel := context.WithTimeout(context.Background(), 10*time.Second)
 	defer cancel()
 
-	if connErr := tbyteService.connectDatabase(opts.Dbhosts, opts.Dbname, opts.Dbuser, opts.Dbpass); connErr != nil {
+	tbyteService.env = opts
+	tbyteService.configureHandlers()
+
+	if connErr := tbyteService.connectDatabase(); connErr != nil {
 		return nil, fmt.Errorf("Could not connect to database: %w", connErr)
 	}
 
@@ -43,41 +47,36 @@ func NewIdentityProviderServer(opts model.CommandOpts) (*TournabyteIdentityProvi
 		return nil, fmt.Errorf("Database unreachable: %w", pingErr)
 	}
 
-	tbyteService.configureHandlers()
-	listenOn = opts.Port
+	if signErr := tbyteService.initializeTokenSigner(); signErr != nil {
+		return nil, fmt.Errorf("Failed to create token signer: %w", signErr)
+	}
 
 	return &tbyteService, nil
 }
 
-func (provider *TournabyteIdentityProviderService) connectDatabase(
-	hosts []string,
-	database string,
-	username string,
-	password string,
-) error {
-	var uri string
+func (provider *TournabyteIdentityProviderService) initializeTokenSigner() error {
+	signer, err := jose.NewSigner(
+		jose.SigningKey{Algorithm: jose.HS256, Key: []byte(provider.env.Serve.WebToken.Key)},
+		nil,
+	)
+	if err != nil {
+		return err
+	}
+
+	provider.sessionTokenSigner = signer
+	return nil
+}
+
+func (provider *TournabyteIdentityProviderService) connectDatabase() error {
 	var connectOptions options.ClientOptions
 
-	if len(hosts) == 0 {
-		return fmt.Errorf("at least one host must be provided")
-	}
+	connectOptions.SetHosts(provider.env.Datastore.Hosts)
+	connectOptions.SetAuth(options.Credential{
+		Username:    provider.env.Datastore.Username,
+		Password:    provider.env.Datastore.Password,
+		PasswordSet: true,
+	})
 
-	hostList := strings.Join(hosts, ",")
-	credentials := fmt.Sprintf(
-		"%s:%s",
-		url.QueryEscape(username),
-		url.QueryEscape(password),
-	)
-
-	if database != "" {
-		uri = fmt.Sprintf("mongodb://%s@%s/%s", credentials, hostList, database)
-	} else {
-		uri = fmt.Sprintf("mongodb://%s@%s", credentials, hostList)
-	}
-
-	connectOptions.ApplyURI(uri)
-	connectOptions.Auth.AuthSource = "admin"
-	log.Printf("Using `%s` as the database", connectOptions.GetURI())
 	conn, conn_err := mongo.Connect(&connectOptions)
 	if conn_err != nil {
 		return fmt.Errorf("failed to initialize the mongo client: %w", conn_err)
@@ -107,16 +106,21 @@ func (provider *TournabyteIdentityProviderService) configureHandlers() {
 		SetRequestTimeout(ExtractPathParameters(provider.findAccountById, "id"), 30),
 	)
 
+	provider.mux.HandleFunc(
+		AUTHORIZE_LOGIN,
+		SetRequestTimeout(ReadRequestBodyAsJSON[model.LoginAttempt](provider.authorizeAccount), 30),
+	)
+
 }
 
 func (provider *TournabyteIdentityProviderService) Run() {
 	server := &http.Server{
-		Addr:    fmt.Sprintf(":%d", listenOn),
+		Addr:    fmt.Sprintf(":%d", provider.env.Serve.Port),
 		Handler: provider.mux,
 	}
 
 	go func() {
-		log.Printf("Starting server on port %d", listenOn)
+		log.Printf("Starting server on port %d", provider.env.Serve.Port)
 		if err := server.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 			log.Fatalf("Failed to start service: %v", err)
 		}
@@ -179,9 +183,9 @@ func (provider *TournabyteIdentityProviderService) findAccountById(w http.Respon
 				context.WithValue(
 					r.Context(),
 					HANDLER_RESPONSE_BODY,
-					*account,
+					account.BasicInfo(),
 				))
-			EmitResponseAsJSON[model.Account](w, r)
+			EmitResponseAsJSON[model.BasicAccountInfoResponse](w, r)
 		}
 
 	} else {
@@ -201,16 +205,14 @@ func (provider *TournabyteIdentityProviderService) findAccountById(w http.Respon
 }
 
 func (provider *TournabyteIdentityProviderService) createAccount(w http.ResponseWriter, r *http.Request) {
-	if deadline, ok := r.Context().Deadline(); ok {
-		log.Printf("Time remaining: %d", time.Until(deadline))
-	} else {
-		log.Printf("Deadline already exceeded")
-	}
 	if newAccountDetails, ok := r.Context().Value(DECODED_JSON_BODY).(model.CreateAccountRequest); ok {
 		accountsCollectionHandle := model.NewTournabyteAccountRepository(
 			provider.db.Database("idp").Collection("accounts"),
 		)
-		newAccountRecord := model.Account{Email: newAccountDetails.NewAccountEmail}
+		newAccountRecord := model.Account{
+			Email:    newAccountDetails.NewAccountEmail,
+			LoginKey: provider.mustHashPassword(newAccountDetails.NewAccountPassword),
+		}
 		if createErr := accountsCollectionHandle.Create(r.Context(), &newAccountRecord); createErr != nil {
 			log.Printf("Did not create the account: %v", createErr)
 			r = r.WithContext(
@@ -252,4 +254,121 @@ func (provider *TournabyteIdentityProviderService) createAccount(w http.Response
 		panic("Required dynamic path part not present")
 
 	}
+}
+
+func (provider *TournabyteIdentityProviderService) authorizeAccount(w http.ResponseWriter, r *http.Request) {
+	if loginAttempt, ok := r.Context().Value(DECODED_JSON_BODY).(model.LoginAttempt); ok {
+		accountsCollectionHandle := model.NewTournabyteAccountRepository(
+			provider.db.Database("idp").Collection("accounts"),
+		)
+		if acc, err := accountsCollectionHandle.FindByEmail(r.Context(), loginAttempt.LoginId); err != nil {
+			log.Printf("No account found with email: %s", loginAttempt.LoginId)
+			r = r.WithContext(
+				context.WithValue(r.Context(), HANDLER_STATUS_CODE, http.StatusForbidden),
+			)
+			r = r.WithContext(
+				context.WithValue(
+					r.Context(),
+					HANDLER_RESPONSE_BODY,
+					model.ErrorResponse{Reason: "NO_MATCHING_RESOURCE", Message: "Invalid email or password"},
+				))
+			defer RecoverResponse(w, r)
+			panic("Invalid log in attempt")
+
+		} else {
+			if acc.LoginAttemptsSinceLastSuccess > 5 {
+				log.Printf("Too many attempts at logging in")
+				r = r.WithContext(
+					context.WithValue(r.Context(), HANDLER_STATUS_CODE, http.StatusUnauthorized),
+				)
+				r = r.WithContext(
+					context.WithValue(
+						r.Context(),
+						HANDLER_RESPONSE_BODY,
+						model.ErrorResponse{Reason: "NO_MATCHING_RESOURCE", Message: "Account locked"},
+					))
+				defer RecoverResponse(w, r)
+				panic("Invalid log in attempt")
+			}
+			if match, err := argon2id.ComparePasswordAndHash(loginAttempt.LoginSecret, acc.LoginKey); err != nil {
+				log.Printf("Error during password comparison: %v", err)
+				r = r.WithContext(
+					context.WithValue(r.Context(), HANDLER_STATUS_CODE, http.StatusUnauthorized),
+				)
+				r = r.WithContext(
+					context.WithValue(
+						r.Context(),
+						HANDLER_RESPONSE_BODY,
+						model.ErrorResponse{Reason: "NO_MATCHING_RESOURCE", Message: "Invalid email or password"},
+					))
+				defer RecoverResponse(w, r)
+				panic("Invalid log in attempt")
+			} else if !match {
+				log.Printf("Comparison succeeded but no match found")
+				r = r.WithContext(
+					context.WithValue(r.Context(), HANDLER_STATUS_CODE, http.StatusUnauthorized),
+				)
+				r = r.WithContext(
+					context.WithValue(
+						r.Context(),
+						HANDLER_RESPONSE_BODY,
+						model.ErrorResponse{Reason: "NO_MATCHING_RESOURCE", Message: "Invalid email or password"},
+					))
+				accountsCollectionHandle.IncrementLoginAttempts(r.Context(), acc.Id)
+				defer RecoverResponse(w, r)
+				panic("Invalid log in attempt")
+			} else {
+				log.Printf("Comparison succeeded and match detected")
+				accountsCollectionHandle.ResetLoginAttempts(r.Context(), acc.Id)
+				r = r.WithContext(
+					context.WithValue(r.Context(), HANDLER_STATUS_CODE, http.StatusCreated),
+				)
+				r = r.WithContext(
+					context.WithValue(
+						r.Context(),
+						HANDLER_RESPONSE_BODY,
+						model.SuccessfulAuthenticationResponse{Token: provider.makeSessionToken(acc.Id.String())},
+					))
+				EmitResponseAsJSON[model.SuccessfulAuthenticationResponse](w, r)
+
+			}
+		}
+	} else {
+		r = r.WithContext(
+			context.WithValue(r.Context(), HANDLER_STATUS_CODE, http.StatusBadRequest),
+		)
+		r = r.WithContext(
+			context.WithValue(
+				r.Context(),
+				HANDLER_RESPONSE_BODY,
+				model.ErrorResponse{Reason: "INVALID_JSON_BODY", Message: "Required body is not present or incorrectly structured"},
+			))
+		defer RecoverResponse(w, r)
+		panic("Invalid log in attempt")
+
+	}
+}
+
+func (provider *TournabyteIdentityProviderService) mustHashPassword(passwd string) string {
+	hash, err := argon2id.CreateHash(passwd, argon2id.DefaultParams)
+	if err != nil {
+		panic(fmt.Sprintf("Hashing failed: %v", err))
+	}
+	return hash
+}
+
+func (provider *TournabyteIdentityProviderService) makeSessionToken(userId string) string {
+	cl := jwt.Claims{
+		Issuer:   "example.com",
+		Audience: jwt.Audience{"example-audience"},
+		Expiry:   jwt.NewNumericDate(time.Now().Add(24 * time.Hour)),
+		IssuedAt: jwt.NewNumericDate(time.Now()),
+		ID:       userId,
+	}
+
+	raw, err := jwt.Signed(provider.sessionTokenSigner).Claims(cl).Serialize()
+	if err != nil {
+		panic(fmt.Sprintf("JWT creation failed: %v", err))
+	}
+	return raw
 }

@@ -7,9 +7,7 @@ import (
 	"log"
 
 	"github.com/spf13/cobra"
-	"github.com/spf13/viper"
 	"github.com/tournabyte/idp/api"
-	"github.com/tournabyte/idp/model"
 )
 
 var serveCmd = &cobra.Command{
@@ -20,39 +18,51 @@ var serveCmd = &cobra.Command{
 
 func init() {
 	serveCmd.Flags().Int("port", 8080, "Port for the application to listen on")
-	serveCmd.Flags().StringSlice("mongo", []string{"localhost:27017"}, "Comma-separated list of hosts for mongo db persistence functionality")
-	serveCmd.Flags().String("dbname", "local", "Database to utilize for persistence layer")
+	serveCmd.Flags().StringSlice("dbhosts", []string{"localhost:27017"}, "Comma-separated list of hosts for mongo db persistence functionality")
 	serveCmd.Flags().String("dbuser", "", "Database identity to access mongo instance")
 	serveCmd.Flags().String("dbpass", "", "Database access key for authenticating to mongo instance")
 
 	rootCmd.AddCommand(serveCmd)
 
-	viper.BindPFlag("serve.port", serveCmd.Flags().Lookup("port"))
-	viper.BindPFlag("mongo.hosts", serveCmd.Flags().Lookup("mongo"))
-	viper.BindPFlag("mongo.database", serveCmd.Flags().Lookup("dbname"))
-	viper.BindPFlag("mongo.username", serveCmd.Flags().Lookup("dbuser"))
-	viper.BindPFlag("mongo.password", serveCmd.Flags().Lookup("dbpass"))
-}
+	optionsToFlags := map[string]string{
+		"serve.port":         "port",
+		"datastore.hosts":    "dbhosts",
+		"datastore.username": "dbuser",
+		"datastore.password": "dbpass",
+	}
 
-func getCommandOpts() model.CommandOpts {
-	var cmdOpts model.CommandOpts
+	if err := appConf.ApplyFlags(serveCmd.Flags(), optionsToFlags); err != nil {
+		log.Fatalf("Error applying flag overrides: %v", err)
+	}
 
-	cmdOpts.Port = viper.GetInt("serve.port")
-	cmdOpts.Dbhosts = viper.GetStringSlice("mongo.hosts")
-	cmdOpts.Dbname = viper.GetString("mongo.database")
-	cmdOpts.Dbuser = viper.GetString("mongo.username")
-	cmdOpts.Dbpass = viper.GetString("mongo.password")
+	log.Printf("Application configuration after applying plags")
+	log.Printf("\tserve.port: %v", appConf.GetValue("serve.port"))
+	log.Printf("\tserve.jwt.key: %v", appConf.GetValue("serve.jwt.key"))
+	log.Printf("\tserve.jwt.leeway: %v", appConf.GetValue("serve.jwt.leeway"))
+	log.Printf("\tdatastore.hosts: %v", appConf.GetValue("datastore.hosts"))
+	log.Printf("\tdatastore.username: %v", appConf.GetValue("datastore.username"))
+	log.Printf("\tdatastore.password: %v", appConf.GetValue("datastore.password"))
 
-	return cmdOpts
 }
 
 func doCommand(cmd *cobra.Command, args []string) {
 
-	server, err := api.NewIdentityProviderServer(getCommandOpts())
+	if opts, err := appConf.GetOptions(); err != nil {
+		log.Fatalf("Application options could not be retrieved: %v", err)
+	} else {
+		log.Printf("Application Options:\n")
+		log.Printf("\tServe.Port = %d", opts.Serve.Port)
+		log.Printf("\tServe.WebToken.Key = %s", opts.Serve.WebToken.Key)
+		log.Printf("\tServe.WebToken.Leeway = %s", opts.Serve.WebToken.Leeway.String())
+		log.Printf("\tDatastore.Hosts = %v", opts.Datastore.Hosts)
+		log.Printf("\tDatastore.Username = %v", opts.Datastore.Username)
+		log.Printf("\tDatastore.Password = %v", opts.Datastore.Password)
+		server, err := api.NewIdentityProviderServer(opts)
 
-	if err != nil {
-		log.Fatalf("Failed to create server: %v", err)
+		if err != nil {
+			log.Fatalf("Failed to create server: %v", err)
+		}
+
+		server.Run()
 	}
-
-	server.Run()
 }
